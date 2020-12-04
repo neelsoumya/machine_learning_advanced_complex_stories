@@ -1,0 +1,22 @@
+icd10_code	description
+F00.0	Dementia in Alzheimer's disease with early onset
+F000	Dementia in Alzheimer's disease with early onset
+F00.1	Dementia in Alzheimer's disease with late onset
+F001	Dementia in Alzheimer's disease with late onset
+F00.2	Dementia in Alzheimer's disease, atypical or mixed type
+F002	Dementia in Alzheimer's disease, atypical or mixed type
+F00.8	Dementia in Alzheimer's disease, unspecified
+F008	Dementia in Alzheimer's disease, unspecified
+F05.0	Delirium not superimposed on dementia, so described
+F050	Delirium not superimposed on dementia, so described
+F06.7	Mild cognitive disorder
+F067	Mild cognitive disorder
+F20.0	Schizophrenia
+F200	Schizophrenia
+F32	Major depression single episode
+F33	Major depression recurring
+Z91.5	Self harm
+Z915	Self harm
+Z91.1	Non compliance
+Z911	Non compliance
+	

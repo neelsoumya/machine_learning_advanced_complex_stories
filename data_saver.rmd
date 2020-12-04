@@ -1,0 +1,956 @@
+---
+title: "Data aggregation and cleaning pipeline"
+header-includes:
+- \usepackage{placeins}
+- \usepackage{float}
+- \floatplacement{figure}{H}
+output:
+  pdf_document:
+    fig_caption: yes
+    keep_tex: yes
+    latex_engine: xelatex
+    number_sections: yes
+  word_document: default
+  html_document:
+    df_print: paged
+bibliography: cam_project.bib
+urlcolor: blue
+---
+
+
+```{r include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(cache = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(out.extra = '')
+#knitr::opts_chunk$set(fig.pos = 'H')
+```
+
+\begin{centering}
+\vspace{3 cm}
+
+\Large
+
+\normalsize
+Cardinal and Lio groups, `r format(Sys.time(), "%b %d %Y")`
+
+
+\vspace{3 cm}
+\end{centering}
+
+\setcounter{tocdepth}{2}
+\tableofcontents
+
+\newpage
+
+
+
+```{r , fig.cap="test", fig.width=12, fig.height=3,  echo=FALSE}
+
+
+#plot(x,y)
+
+```
+
+
+
+```{r, include=FALSE}
+
+# Load packages and settings
+library(sqldf)
+library(ggplot2)
+library(knitr)
+library(rmarkdown)
+library(gplots)
+library(RColorBrewer)
+library(reshape2)
+library(png)
+library(grid)
+library(gridExtra)
+library(lme4)
+library(lmerTest)
+library(lubridate)
+library(reshape2)
+library(data.table)
+library(pheatmap)
+library(cba)
+library(rstanarm)
+library(shinystan)
+library(rstantools) # make a rstanarm package
+library(bayesplot)
+library("factoextra") #install_github("kassambara/factoextra")
+library(rpart)
+
+REQUIRED_PACKAGES <- c(
+  "car",  # may need: sudo apt install libgfortran3
+  "data.table",
+  "ggplot2",
+  "lubridate",
+  "RODBC",
+  "shinystan"
+  # "survival"
+  # "timereg"
+)
+
+LIBRARY_PREFIX <- "https://egret.psychol.cam.ac.uk/rlib/"
+
+#source(paste0(LIBRARY_PREFIX, "datetimefunc.R"))
+source("datetimefunc.R")
+source(paste0(LIBRARY_PREFIX, "dbfunc.R"))
+source(paste0(LIBRARY_PREFIX, "listfunc.R"))
+source(paste0(LIBRARY_PREFIX, "listassign.R"))
+source(paste0(LIBRARY_PREFIX, "miscfile.R"))
+source(paste0(LIBRARY_PREFIX, "misclang.R"))
+source(paste0(LIBRARY_PREFIX, "miscstat.R"))
+source(paste0(LIBRARY_PREFIX, "stanfunc.R"))
+source(paste0(LIBRARY_PREFIX, "cris_common.R"))
+
+misclang$library_or_install(REQUIRED_PACKAGES)
+
+# As advised by Stan:
+rstan::rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+
+# Other misc commands
+BIGSEP <-   "===============================================================================\n"
+SMALLSEP <- "-------------------------------------------------------------------------------\n"
+
+```
+
+
+# Functions
+
+This loads functions.
+
+
+```{r, include=FALSE}
+
+
+# =============================================================================
+# Directories
+# =============================================================================
+
+#THIS_SCRIPT_DIR <- miscfile$current_script_directory()
+THIS_SCRIPT_DIR <- "Z:/cam_project/code/cpft_mortality" # "C:/Users/sbanerjee/Downloads"
+SOURCE_DATA_DIR <- file.path(THIS_SCRIPT_DIR, "source_data")
+FIT_CACHE_DIR <- file.path(THIS_SCRIPT_DIR, "fitcache")
+
+
+# =============================================================================
+# Basic analysis
+# =============================================================================
+
+getTemperatureData <- function(
+  filename = file.path(SOURCE_DATA_DIR, "cetdl1772on.dat"),
+  url = "https://www.metoffice.gov.uk/hadobs/hadcet/cetdl1772on.dat")
+{
+  if (!file.exists(filename)) {
+    directory <- dirname(filename)
+    if (!dir.exists(directory)) {
+      stop("No such directory: ", directory)
+    }
+    download.file(url, filename)
+  }
+  rawdata <- fread(filename)
+  months <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+  colnames(rawdata) <- c("year", "day", months)
+  day_temperatures <- melt(
+    data = rawdata,
+    id.vars = c("year", "day"),
+    measure.vars = months,
+    variable.name = "month_name",
+    value.name = "temperature_tenth_celsius"
+  )
+  day_temperatures[, month := match(month_name, months)]
+  day_temperatures[, date := ISOdate(year, month, day)]
+  # We will have silly dates like 31 Feb, so:
+  day_temperatures <- day_temperatures[!is.na(date)]
+  setkey(day_temperatures, date)
+  day_temperatures[temperature_tenth_celsius == -999, temperature_tenth_celsius := NA]
+  day_temperatures[, temperature_celsius := temperature_tenth_celsius / 10]
+  # We might not have data to the end of the current year:
+  last_rownum <- last(which(!is.na(day_temperatures$temperature_celsius)))
+  day_temperatures <- day_temperatures[1:last_rownum]
+  # day_temperatures[is.na(temperature_celsius)]
+  day_temperatures[]  # fix display bug
+  return(day_temperatures)
+}
+
+
+getTemperatureSummaries <- function(start_year = NULL,
+                                    start_month = NULL,
+                                    end_year = NULL,
+                                    end_month = NULL)
+{
+  day_temperatures <- getTemperatureData()
+  if (!is.null(start_year)) {
+    day_temperatures <- day_temperatures[year >= start_year]
+    if (!is.null(start_month)) {
+      day_temperatures <- day_temperatures[year > start_year |
+                                             month >= start_month]
+    }
+  }
+  if (!is.null(end_year)) {
+    day_temperatures <- day_temperatures[year <= end_year]
+    if (!is.null(end_month)) {
+      day_temperatures <- day_temperatures[year < end_year |
+                                             month <= end_month]
+    }
+  }
+  year_temperatures <- day_temperatures[
+    ,
+    .(mean_temp_c = mean(temperature_celsius, na.rm = TRUE)),
+    by = .(year)
+    ]
+  year_month_temperatures <- day_temperatures[
+    ,
+    .(mean_temp_c = mean(temperature_celsius, na.rm = TRUE)),
+    by = .(year, month, month_name)
+    ]
+  month_temperatures <- day_temperatures[
+    ,
+    .(mean_temp_c = mean(temperature_celsius, na.rm = TRUE)),
+    by = .(month, month_name)
+    # Potentially a bit iffy in terms of unweighted means,
+    # i.e. leap years versus not; but will be tiny!
+    ]
+  return(list(
+    day_temperatures = day_temperatures,
+    year_temperatures = year_temperatures,
+    month_temperatures = month_temperatures,
+    year_month_temperatures = year_month_temperatures
+  ))
+}
+
+
+interestingTemperaturePlots <- function()
+{
+  list[day_temperatures,
+       year_temperatures,
+       month_temperatures,
+       year_month_temperatures] <- getTemperatureSummaries()
+  # Climate change...
+  p1 <- (
+    ggplot(year_temperatures, aes(x = year, y = mean_temp_c))
+    + geom_line()
+  )
+  # Seasonal variation
+  p2 <- (
+    ggplot(month_temperatures, aes(x = month, y = mean_temp_c))
+    + geom_line()
+    + scale_x_continuous(
+      name = "Month",
+      breaks = month_temperatures$month,
+      labels = month_temperatures$month_name
+    )
+  )
+  return(list(p1, p2))
+}
+
+
+fetchQuery <- function(sql, base_filename, dbhandle)
+{
+    filename <- file.path(SOURCE_DATA_DIR, paste(base_filename, ".rds", sep=""))
+    dbfunc$getCachedQuery(filename, dbhandle, sql)
+}
+
+
+fetchTable <- function(table_spec, base_filename, dbhandle)
+{
+    sql <- paste("SELECT * FROM", table_spec)
+    return(fetchQuery(sql, base_filename, dbhandle))
+}
+
+
+
+fetchCpftMortality <- function()
+{
+        dbhandle <- dbfunc$connectCpft()
+        demographics <- fetchQuery(
+          "
+          SELECT
+          Date_Of_Birth, Date_Of_Death, Death_Flag, Died_In_Hospital,
+          Ethnicity_Code, Ethnicity_Description, Ethnicity_National_Code,
+          Gender_Code,
+          mrid, rid, crate_pk, Date_Registered 
+          FROM RiO.dbo.Client_Demographic_Details
+          ", "rio_client_demographic_details", dbhandle) # , Date_Registered 
+        diagnosis <- fetchQuery(
+          "
+          SELECT
+          Diagnosis, Diagnosis_Code, Diagnosis_Start_Date, Diagnosis_End_Date,
+          Entry_Date, Removal_Date,
+          rid, crate_pk
+          FROM RiO.dbo.Diagnosis
+          ", "rio_diagnosis", dbhandle)
+        return(list(
+          demographics = demographics,
+          diagnosis = diagnosis
+        ))
+}
+
+
+```
+
+
+
+```{r, include=FALSE}
+
+#analyseMortalityByTemperature <- function()
+#{
+dbhandle <- dbfunc$connectCpft()
+list[demographics, diagnosis] <- fetchCpftMortality()
+
+# get lubrridate dates for diagnosis
+diagnosis$Entry_Date_lubridate <- lubridate::make_date(year  = lubridate::year(diagnosis$Entry_Date),
+                                                       month = lubridate::month(diagnosis$Entry_Date),
+                                                       day   = 1)
+
+# get lubrridate dates for diagnosis
+diagnosis$Diagnosis_Start_Date_lubridate <- lubridate::make_date(year  = lubridate::year(diagnosis$Diagnosis_Start_Date),
+                                                       month = lubridate::month(diagnosis$Diagnosis_Start_Date),
+                                                       day   = 1)
+
+#demographics$Date_Of_Death_lubridate <- lubridate::make_date(year  = lubridate::year(demographics$Date_Of_Death),
+#                                                             month = lubridate::month(demographics$Date_Of_Death),
+#                                                             day   = 1)
+
+# TODO:more macthes with other diagnosis codes use grep and gsub to mathc to metafeatures column F20.1 F20.2 -> F20*
+# data cleaning for diagnosis codes sometimes F200 which is F20.0
+
+
+#########################################
+# join to get all combijed data
+#########################################
+
+# load feature to metafeature mapping
+df_feature_to_metafeature_map <- read.csv('feature_to_metafeature_mapping.tsv', 
+                                        sep = '\t', header = TRUE, 
+                                        stringsAsFactors=FALSE, na.strings="..") # ,strip.white = TRUE)
+
+
+# save original diagnosis codes in another column
+diagnosis$Diagnosis_Code_orig <- diagnosis$Diagnosis_Code
+
+for (str_feature_name_temp in df_feature_to_metafeature_map$feature)
+{
+      #str_feature_name_temp <- 'F20'
+      idx_replace <- which(diagnosis$Diagnosis_Code %in% str_feature_name_temp)
+      diagnosis$Diagnosis_Code[idx_replace] <- str_feature_name_temp
+      
+      # trying soemthing new where you find every occurrence of F20% and replaces it with F20
+      # i.e we are looking at ICD-10 chapters F20 is chapter for schizophrenia
+      idx_replace <- which(diagnosis$Diagnosis_Code %like% str_feature_name_temp)
+      diagnosis$Diagnosis_Code[idx_replace] <- str_feature_name_temp
+}
+
+
+
+
+# idx_replace <- which(diagnosis$Diagnosis_Code %in% 'F20')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'F20'
+# 
+# # trying soemthing new where you find every occurrence of F20% and replaces it with F20
+# # i.e we are looking at ICD-10 chapters F20 is chapter for schizophrenia
+# idx_replace <- which(diagnosis$Diagnosis_Code %like% 'F20')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'F20'
+# # to convince your self that which(diagnosis$Diagnosis_Code %like% 'F20') is same as SQL F20%
+# # temp_idx <- which(diagnosis$Diagnosis_Code %like% 'F20')
+# # temp_diagnosis <- diagnosis[temp_idx,]
+# # sqldf::sqldf("select count(distinct(rid)) from temp_diagnosis  ")
+# # sqldf::sqldf("select count(distinct(rid)) from diagnosis where Diagnosis_Code like 'F20%' ")
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %in% 'Z63')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'Z63'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %like% 'Z63')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'Z63'
+# 
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %in% 'Z911')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'Z91.1'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %in% 'Z91')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'Z91'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %like% 'Z91')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'Z91'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %in% 'Z915')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'Z91.5'
+# 
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %in% 'F000')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'F00.0'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %in% 'F001')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'F00.1'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %in% 'F002')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'F00.2'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %in% 'F008')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'F00.8'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %in% 'F050')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'F05.0'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %in% 'F067')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'F06.7'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %like% 'T39')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'T39'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %in% 'T39')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'T39'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %like% 'T50')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'T50'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %in% 'T50')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'T50'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %like% 'X60')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'X60'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %in% 'X60')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'X60'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %like% 'X61')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'X61'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %in% 'X61')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'X61'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %like% 'X62')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'X62'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %in% 'X62')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'X62'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %like% 'X63')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'X63'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %in% 'X63')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'X63'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %like% 'X64')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'X64'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %in% 'X64')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'X64'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %like% 'X78')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'X78'
+# 
+# idx_replace <- which(diagnosis$Diagnosis_Code %in% 'X78')
+# diagnosis$Diagnosis_Code[idx_replace] <- 'X78'
+
+##################################
+# save diagnosis table
+#################################
+saveRDS(diagnosis, file = "source_data/diagnosis.rds")
+
+# TODO: other features add here as necessary
+
+list[day_temperatures,
+     year_temperatures,
+     month_temperatures,
+     year_month_temperatures] <- getTemperatureSummaries(
+       start_year = 2013, start_month = 1,
+       end_year = 2018, end_month = 4)
+
+demographics[, age_at_death := datetimefunc$calendarAge(
+  Date_Of_Birth, Date_Of_Death)]
+
+# -------------------------------------------------------------------------
+# Simple analysis: number of deaths by month, not controlling for number
+# of patients in denominator:
+# -------------------------------------------------------------------------
+
+# demographics <- demographics[age_at_death < 65]
+
+fn_get_deaths_in_month <- function(yr, mo) {
+  cat(paste("yr", yr, "mo", mo, "\n"))
+  relevant_deaths <- demographics[
+    !is.na(Date_Of_Death) &
+      lubridate::year(Date_Of_Death) == yr &
+      lubridate::month(Date_Of_Death) == mo
+    ]
+  # print(relevant_deaths)
+  return(nrow(relevant_deaths))  # number of deaths
+}
+year_month_temperatures[
+  ,
+  n_deaths := fn_get_deaths_in_month(year, month),
+  by = 1:nrow(year_month_temperatures)
+  ]
+year_month_temperatures[, temp_squared := mean_temp_c ^ 2]
+
+
+synth_temp_range <- range(year_month_temperatures$mean_temp_c)
+# synth_temp_range <- c(-20, 30)
+synth_ym <- data.table(
+  year = mean(year_month_temperatures$year),
+  month = mean(year_month_temperatures$month),
+  mean_temp_c = seq(
+    from = synth_temp_range[1],
+    to = synth_temp_range[2],
+    length.out = 200
+  )
+)
+synth_ym[, temp_squared := mean_temp_c ^ 2]
+#synth_ym[, predicted_m3 := predict(m3, newdata=synth_ym)]
+
+
+#}
+
+all_medications <- fetchQuery(
+  " SELECT * FROM RiONLP.dbo.medications_gate ",
+  "rionlp_medications_gate", 
+  dbhandle)
+
+
+all_medications$drug <- tolower(all_medications$drug)
+
+# 1. laboratory measurements data
+
+all_crp <- fetchQuery(
+  " SELECT * FROM RiONLP.dbo.f32f33_crp ",
+  "rionlp_crp_gate", 
+  dbhandle)
+
+
+#lubridate::year(lubridate::today()) - lubridate::year(demographics$Date_Of_Birth) 
+
+# create a new column for age now (age now if alive else age at death)
+demographics$age_now <- demographics$age_at_death # default
+# find those who are alive
+idx_alive = which(demographics$Death_Flag == 0)
+# chaange their age
+demographics$age_now[idx_alive] <- lubridate::year(lubridate::today()) - lubridate::year(demographics$Date_Of_Birth[idx_alive]) 
+
+demographics$age_now_scaled <- scale(demographics$age_now, scale = TRUE)
+
+# get age_now here
+
+# map medicaitons name to metafetaure
+all_medications_in_mapping <- sqldf::sqldf("select *
+                                           from all_medications
+                                            inner join df_feature_to_metafeature_map
+                                            on all_medications.drug = df_feature_to_metafeature_map.feature
+                                            ")
+
+all_medications_in_mapping$drug_metafeature <- all_medications_in_mapping$metafeature
+
+# new architecture
+df_patients_joined_meds <- sqldf::sqldf("select * from 
+                                        demographics 
+                                        left join
+                                        all_medications_in_mapping
+                                        on demographics.rid = all_medications_in_mapping.rid
+                                        ")
+# TODO: match Z91* etc also using grep losing rows here
+df_diagnosis_in_mapping <- sqldf::sqldf("select *
+                                     from diagnosis
+                                     left join 
+                                     df_feature_to_metafeature_map 
+                                     on diagnosis.Diagnosis_Code = df_feature_to_metafeature_map.feature ")
+
+df_diagnosis_in_mapping$Diagnosis_Code_metafeature <- df_diagnosis_in_mapping$metafeature
+
+head(df_patients_joined_meds)
+dim(df_patients_joined_meds)
+
+
+# get prior suicide information
+df_prior_suicide <- fetchQuery(
+                        " SELECT * FROM RiO.dbo.UserAssessriskass ",
+                        "rio_suicide_prior", 
+                        dbhandle)
+
+df_prior_suicide_any <- sqldf::sqldf("select * 
+                                      from df_prior_suicide
+                                      where (hts1_21 = 1 or hts1_22 = 1) 
+                                    ")
+
+df_prior_suicide_any$suicide_any <- 1
+# can do left join with this table
+
+df_suicide_numbers <- sqldf::sqldf("select count(distinct(rid)) as count
+                                      from df_prior_suicide
+                                   ")
+
+
+# get BMI information
+df_bmi <- fetchQuery(" SELECT * FROM RiONLP.dbo.bmi ",
+                        "rio_nlp_bmi", 
+                        dbhandle)
+
+# get BP information
+df_bp <- fetchQuery(" SELECT * FROM RiONLP.dbo.bp ",
+                        "rio_nlp_bp", 
+                        dbhandle)
+
+#df_med_suicide_features <- 
+#    sqldf::sqldf('select * 
+#                from  all_medications_in_mapping
+#                left join demographics 
+#                on demographics.rid = all_medications_in_mapping.rid 
+#                left join df_prior_suicide_any
+#                on all_medications_in_mapping.rid = df_prior_suicide_any.rid
+#                left join df_diagnosis_in_mapping
+#                on all_medications_in_mapping.rid = df_diagnosis_in_mapping.rid
+#                ')
+
+df_med_suicide_features <- 
+    sqldf::sqldf('select * 
+                from demographics 
+                left join  all_medications_in_mapping
+                on demographics.rid = all_medications_in_mapping.rid 
+                left join df_prior_suicide_any
+                on demographics.rid = df_prior_suicide_any.rid
+                left join df_diagnosis_in_mapping
+                on demographics.rid = df_diagnosis_in_mapping.rid
+                ')
+
+# feature transfomraiotns
+idx_to_change_temp <- which( is.na(df_med_suicide_features$suicide_any) )
+
+df_med_suicide_features$suicide_any[idx_to_change_temp] <- 0
+
+df_med_suicide_features$suicide_any <- factor(df_med_suicide_features$suicide_any)
+
+
+
+#################################################
+# TODO: fix df_med_suicide_features_lengthened_1
+#################################################
+
+df_med_suicide_features$drug_metafeature
+df_med_suicide_features$Diagnosis_Code_metafeature
+
+
+df_med_suicide_features_lengthened_1 <- data.table::dcast(data = df_med_suicide_features, 
+                                                        formula = rid + age_now_scaled + Death_Flag + Gender_Code + suicide_any ~ Diagnosis_Code_metafeature, value.var='Diagnosis_Code_metafeature',
+                                                         fun.aggregate = function(d) {ifelse(length(d) > 0, 1, 0)} )
+
+#df_med_suicide_features_lengthened_1 <- data.table::dcast(data = df_med_suicide_features, 
+#                                                        formula = rid ~ Diagnosis_Code_metafeature,
+#                                                        fun.aggregate = function(d) {ifelse(any(d), 1, 0)} )
+
+
+#df_med_suicide_features_lengthened_1_1 <- data.table::dcast(data = df_med_suicide_features, 
+#                                                        formula = rid + age_now_scaled + Death_Flag + Gender_Code + suicide_any ~ Diagnosis_Code_metafeature,
+#                                                        any )
+
+df_med_suicide_features_lengthened_2 <- data.table::dcast(data = df_med_suicide_features, 
+                                                        formula = rid + age_now_scaled + Death_Flag + Gender_Code + suicide_any ~ drug_metafeature, value.var='drug_metafeature',
+                                                        fun.aggregate = function(d) {ifelse(length(d) > 0, 1, 0)} )
+
+
+df_med_suicide_features_lengthened <- sqldf::sqldf("select *
+                                                   from df_med_suicide_features_lengthened_1
+                                                   left join
+                                                   df_med_suicide_features_lengthened_2
+                                                   on df_med_suicide_features_lengthened_1.rid = df_med_suicide_features_lengthened_2.rid
+                                                   ")
+
+
+# all people who have neither medicine nor diagnostic code
+df_med_suicide_features_lengthened_final <- sqldf::sqldf("select *
+                                                         from demographics
+                                                          left join 
+                                                          df_med_suicide_features_lengthened
+                                                          on demographics.rid = df_med_suicide_features_lengthened.rid")
+
+# replace NA
+# first need to replaced and nullfy date coulmns otherwise error
+df_med_suicide_features_lengthened_final$Date_Of_Birth   <- NULL
+df_med_suicide_features_lengthened_final$Date_Of_Death   <- NULL
+df_med_suicide_features_lengthened_final$Date_Registered <- NULL
+idx_missing_values_in_cells = which( is.na(df_med_suicide_features_lengthened_final ) , arr.ind = TRUE)
+df_med_suicide_features_lengthened_final[idx_missing_values_in_cells] <- 0
+
+# remove dupicates
+df_combined_all_features <- sqldf::sqldf('select * 
+                                         from df_med_suicide_features_lengthened_final
+                                         group by rid')
+
+# replace NA
+idx_missing_values_in_cells = which( is.na(df_combined_all_features ) , arr.ind = TRUE)
+df_combined_all_features[idx_missing_values_in_cells] <- 0
+
+# save in cache
+saveRDS(df_combined_all_features, file = "source_data/df_combined_all_features.rds")
+
+# to read
+# df_combined_all_features <- readRDS(file = "source_data/df_combined_all_features.rds")
+
+# remove redundant columns
+# first get relevant columns
+df_all_relevant_features <- data.frame(unique(df_feature_to_metafeature_map$metafeature), stringsAsFactors = FALSE)
+colnames(df_all_relevant_features)[1] <- "metafeature_name"
+df_all_relevant_features <- rbind(df_all_relevant_features, "rid")
+df_all_relevant_features <- rbind(df_all_relevant_features, "age_now_scaled")
+df_all_relevant_features <- rbind(df_all_relevant_features, "age_at_death")
+df_all_relevant_features <- rbind(df_all_relevant_features, "Gender_Code")
+df_all_relevant_features <- rbind(df_all_relevant_features, "Ethnicity_Code")
+df_all_relevant_features <- rbind(df_all_relevant_features, "Died_In_Hospital")
+# rbind(unique(df_feature_to_metafeature_map$metafeature))
+df_all_relevant_features <- rbind(df_all_relevant_features, "Death_Flag")
+
+# df_med_suicide_features_lengthened_final$NA <- NULL
+
+# now select only relevant clumns and create a new data frame fo rus eby ML
+# df_med_suicide_features_lengthened_final_ml
+
+# for each relevant column add it to new data frame
+b_first_entry = TRUE
+# a temp column counter to track column being added and give it a name
+i_temp_col_counter = 1
+for (temp_colname in df_all_relevant_features$metafeature_name)
+{
+
+      # df_all_relevant_features$metafeature_name[67]  %in% colnames(df_med_suicide_features_lengthened_final) 
+
+      # df_med_suicide_features_lengthened_final[,df_all_relevant_features$metafeature_name[27]]
+
+      # check if this colname exists in data frame
+  
+      if (temp_colname %in% colnames(df_med_suicide_features_lengthened_final) )
+      {
+            # if yes, then add this to new data frame
+            df_med_suicide_features_lengthened_final[,temp_colname]
+        
+            cat(temp_colname)
+            
+            if (b_first_entry)
+            {
+                  # just add new column
+                  df_med_suicide_features_lengthened_final_ml <- data.frame( df_med_suicide_features_lengthened_final[, temp_colname], stringsAsFactors = FALSE)
+                  
+                  # reset first entry flag since now you have enetred loop and found a macth and filled data frame df_med_suicide_features_lengthened_final_ml
+                  b_first_entry = FALSE
+            }
+            else
+            {
+                  # append data since data frame has data already  
+                  df_med_suicide_features_lengthened_final_ml <- cbind(df_med_suicide_features_lengthened_final_ml, df_med_suicide_features_lengthened_final[, temp_colname])   
+            }
+
+            
+            # at end give this new data frame columnnames
+            colnames(df_med_suicide_features_lengthened_final_ml)[i_temp_col_counter] <- temp_colname
+            
+            # increment column counter
+            i_temp_col_counter = i_temp_col_counter + 1
+            
+      }
+      
+      
+        
+}
+
+
+
+head(df_med_suicide_features_lengthened_final_ml)
+colnames(df_med_suicide_features_lengthened_final_ml)
+
+
+# save this and ML file
+saveRDS(df_med_suicide_features_lengthened_final,    file = "source_data/df_med_suicide_features_lengthened_final.rds")
+saveRDS(df_med_suicide_features_lengthened_final_ml, file = "source_data/df_med_suicide_features_lengthened_final_ml.rds")
+
+write.table(df_med_suicide_features_lengthened_final, file = "source_data/df_med_suicide_features_lengthened_final.csv",
+                      row.names = FALSE, quote=FALSE, append = FALSE, sep = ",")  #, col.names = NA)
+
+write.table(df_med_suicide_features_lengthened_final, file = "source_data/df_med_suicide_features_lengthened_final.tsv",
+                      row.names = FALSE, quote=FALSE, append = FALSE, sep = "\t")  #, col.names = NA)
+
+write.table(df_med_suicide_features_lengthened_final_ml, file = "source_data/df_med_suicide_features_lengthened_final_ml.csv",
+                      row.names = FALSE, quote=FALSE, append = FALSE, sep = ",")  #, col.names = NA)
+
+write.table(df_med_suicide_features_lengthened_final_ml, file = "source_data/df_med_suicide_features_lengthened_final_ml.tsv",
+                      row.names = FALSE, quote=FALSE, append = FALSE, sep = "\t")  #, col.names = NA)
+
+
+# save F20 only
+df_med_suicide_features_lengthened_final_ml_f20 <- sqldf::sqldf("select *
+                                                                from df_med_suicide_features_lengthened_final_ml
+                                                                where schizophrenia = 1")
+
+df_med_suicide_features_lengthened_final_f20 <- sqldf::sqldf("select *
+                                                                from df_med_suicide_features_lengthened_final
+                                                                where schizophrenia = 1")
+
+
+write.table(df_med_suicide_features_lengthened_final_f20, file = "source_data/df_med_suicide_features_lengthened_final_f20.csv",
+                      row.names = FALSE, quote=FALSE, append = FALSE, sep = ",")  #, col.names = NA)
+
+write.table(df_med_suicide_features_lengthened_final_ml_f20, file = "source_data/df_med_suicide_features_lengthened_final_ml_f20.csv",
+                      row.names = FALSE, quote=FALSE, append = FALSE, sep = ",")  #, col.names = NA)
+
+
+saveRDS(demographics, file = "source_data/demographics.rds")
+
+# sanity check numbers
+head(df_combined_all_features)
+
+#sqldf::sqldf("select count(distinct(rid)) from df_combined_all_features ")
+
+#sqldf::sqldf("select count(distinct(rid)) from demographics ")
+
+#sqldf::sqldf("select count(distinct(rid)) from df_diagnosis_in_mapping ")
+
+#sqldf::sqldf("select count(distinct(rid)) from df_patients_joined_meds ")
+
+#sqldf::sqldf("select count(distinct(rid)) from df_combined_all_features ")
+
+#sqldf::sqldf("select count(distinct(rid)) from df_med_suicide_features ")
+
+#sqldf::sqldf("select count(distinct(rid)) from df_med_suicide_features_lengthened_final ")
+
+
+#df_med_suicide_features
+
+
+# df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Date_Of_Birth,
+df_all <- data.frame( cbind(df_med_suicide_features$age_now_scaled,
+                            df_med_suicide_features$Gender_Code,
+                            df_med_suicide_features$Diagnosis_Code_metafeature,
+                            df_med_suicide_features$drug_metafeature,
+                            df_med_suicide_features$Death_Flag),
+                      stringsAsFactors = FALSE
+                      )
+
+# colnames(df_all)[1] <- 'Date_of_Birth'
+colnames(df_all)[1] <- 'age_now_scaled'
+colnames(df_all)[2] <- 'Gender_Code'
+colnames(df_all)[3] <- 'diagnosis'
+colnames(df_all)[4] <- 'drug'
+colnames(df_all)[5] <- 'death_flag'
+
+df_all$Gender_Code <- factor(df_all$Gender_Code) # c(0,1), levels = c('Male','Female') )
+df_all$diagnosis   <- factor(df_all$diagnosis)
+df_all$drug        <- factor(df_all$drug)
+
+write.table(df_all, file='df_drug_diagnosis_age_gender_deep_format.tsv',
+                      row.names = FALSE, quote=FALSE, append = FALSE, sep = "\t", col.names = TRUE, na = '-1')
+
+
+# TODO: GENERATE A UNIQUE NUMBER FOR EACH DIAGNOSIS AND DRUG. JOIN WITH THIS TABLE TO GET NUMBER AS INPUT TO PYTHON
+
+# TODO: select only relevant columns
+# Make a combined data table using all the columns that are in common
+#common_columns <- colnames(raw_data_alzd)[colnames(raw_data_alzd) %in%
+#                                          colnames(raw_data_dlb)]
+#combined_data <- rbind(
+#    raw_data_alzd[, common_columns, with=FALSE],
+#    raw_data_dlb[, common_columns, with=FALSE]
+#)
+
+```
+
+
+```{r, echo=FALSE}
+
+# get patient first entry date into CPFT
+df_patient_registration <- fetchQuery(" SELECT MIN([Referral_DateTime]) as referral_time, [rid]
+                                        FROM [RiO].[dbo].[Referral]
+	                                      GROUP BY rid",
+                                        "rio_referral_date", 
+                                      dbhandle)
+
+# save to disk
+saveRDS(df_patient_registration, file = "source_data/df_patient_registration.rds")
+
+
+```
+
+
+```{r, echo=FALSE}
+
+colnames(df_all)
+
+df_med_suicide_features_lengthened_norepeat_ALL_norepeat <- data.frame()
+
+idx_schizophrenia       <- grep('F20*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_schizoaffect        <- grep('F25*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_alcohol_abuse       <- grep('F10*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_drug_abuse          <- grep('F12*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_nicotine_abuse      <- grep('F17*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_psychoactive_abuse  <- grep('F19*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_bipolar             <- grep('F31*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_major_depres_single <- grep('F32*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_major_depres_recur  <- grep('F33*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_spec_pers_disorder  <- grep('F60*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_mental_disorder     <- grep('F99*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_asthma              <- grep('J45*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_appearance_behav    <- grep('R46*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_poisoning_1         <- grep('T39*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_poisoning_2         <- grep('T50*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_self_harm_1         <- grep('X60*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_self_harm_2         <- grep('X61*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_self_harm_3         <- grep('X62*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_self_harm_4         <- grep('X63*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_self_harm_5         <- grep('X64*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_self_harm_6         <- grep('X78*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+# Medical observation and evaluation for suspected diseases and conditions 
+idx_under_observation   <- grep('Z03*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+#  Other problems related to primary support group, including family circumstances 
+idx_family_supp         <- grep('Z63*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_subst_abuse         <- grep('Z86*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_noncompliance_1     <- grep('Z91.1*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_noncompliance_2     <- grep('Z911*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_self_harm_7         <- grep('Z91.5*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+idx_self_harm_8         <- grep('Z915*', df_med_suicide_features_lengthened_norepeat_ALL_norepeat$Diagnosis_Code, perl = TRUE)
+
+
+
+# TODO: for sequence information 
+#       other queries with all informaiton takes a lot of time
+# 
+# df_combined_all_features <- 
+#       sqldf::sqldf('select * 
+#                     from  t_records_patients_using_topMeds
+#                     left join df_bmi
+#                     on t_records_patients_using_topMeds.rid = df_bmi.rid
+#                     left join df_bp
+#                     on df_bmi.rid = df_bp.rid 
+#                     left join df_prior_suicide_any
+#                     on t_records_patients_using_topMeds.rid = df_prior_suicide_any.rid
+#                   ')
+# 
+# TODO: other queries with all informaiton takes a lot of time takes 1.5 hours so cache
+# 
+# df_mammoth <-
+#   fetchQuery('select * 
+# 	from  RiO.dbo.Client_Demographic_Details
+# 	  left join RiO.dbo.Diagnosis
+# 	  on RiO.dbo.Client_Demographic_Details.rid = RiO.dbo.Diagnosis.rid
+#       left join RiONLP.dbo.bmi
+#       on RiO.dbo.Client_Demographic_Details.rid = RiONLP.dbo.bmi.rid
+#       left join RiONLP.dbo.bp
+#       on RiO.dbo.Client_Demographic_Details.rid = RiONLP.dbo.bp.rid 
+# 	  left join RiO.dbo.UserAssessriskass
+#       on RiO.dbo.Client_Demographic_Details.rid = RiO.dbo.UserAssessriskass.rid
+# 	  left join RiONLP.dbo.medications_gate
+# 	  on RiO.dbo.Client_Demographic_Details.rid = RiONLP.dbo.medications_gate.rid',
+# 	'rio_all_mammoth',
+# 	dbhandle
+# 	)
+
+# TODO: join with reduced tables
+# TODO: save in cache
+
+
+```
+
+          
+              
+# References
+              
+              
+              
