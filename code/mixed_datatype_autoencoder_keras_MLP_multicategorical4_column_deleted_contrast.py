@@ -439,6 +439,8 @@ if __name__ == '__main__':
     encoded(inputs=input_img)
 
     # back to number of dimensions you had originally
+    # TODO: make parameyter
+    # TODO: report cv error	
     decoded = Dense(units=i_original_dim, activation=str_activation_layer2)
 
     # decoded will take the output of encoder which is
