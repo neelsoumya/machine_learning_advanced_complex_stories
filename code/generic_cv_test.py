@@ -7,6 +7,7 @@
 #       NOTE: takes in many categoreical features and one numeric 
 #			also has MLP on reduced features
 #          this has class contrastive for deep learning
+#       NOTE: this has more input parameters and is used to do model selection and print cross validation cv error cv loss
 #
 # INSTALLATION:
 #   pip3 install tensorflow
