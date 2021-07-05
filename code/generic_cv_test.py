@@ -506,6 +506,8 @@ if __name__ == '__main__':
     #####################################################################################
 
     # Fit model
+    # TODO: print cv error
+    #    https://machinelearningmastery.com/evaluate-performance-deep-learning-models-keras/	
     history = model_autoencoder.fit(x_train,
                                     x_train,
                                     validation_split=f_validation_split,
