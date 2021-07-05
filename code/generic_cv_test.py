@@ -508,6 +508,7 @@ if __name__ == '__main__':
     # Fit model
     # TODO: print cv error
     #    https://machinelearningmastery.com/evaluate-performance-deep-learning-models-keras/	
+    #    https://datascience.stackexchange.com/questions/25267/keras-difference-beetween-val-loss-and-loss-during-training
     history = model_autoencoder.fit(x_train,
                                     x_train,
                                     validation_split=f_validation_split,
