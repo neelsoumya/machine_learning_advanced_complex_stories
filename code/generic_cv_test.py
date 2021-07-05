@@ -518,6 +518,7 @@ if __name__ == '__main__':
     print('Cross validation error ...... \n')
     print( history.history['val_loss'][i_fitting_epochs-1] )	
     print(' ....   \n')
+    np.savetxt(str_output_filename_prefix + '_xval_loss_test.csv', [ history.history['val_loss'][i_fitting_epochs-1] ], delimiter = ',')	
 
     # list all data in history
     # print(history.history.keys())
