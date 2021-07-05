@@ -515,6 +515,9 @@ if __name__ == '__main__':
                                     epochs=i_fitting_epochs,
                                     batch_size=i_batch_size,
                                     verbose=0)
+    print('Cross validation error ...... \n')
+    print( history.history['val_loss'][i_fitting_epochs-1] )	
+    print(' ....   \n')
 
     # list all data in history
     # print(history.history.keys())
