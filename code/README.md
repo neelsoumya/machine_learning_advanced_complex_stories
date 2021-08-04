@@ -69,6 +69,10 @@ We have developed a human-interpretable machine learning technique to make predi
             
                 * advanced code for follow-up paper data augmentation    
                 
+            * generic_cv_test.py
+
+                * cross validation error for generic depth and activation functions   
+                
     * synthetic_data
     
         * code for synthetic data
