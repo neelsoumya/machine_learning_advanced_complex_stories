@@ -39,6 +39,11 @@ We have developed a human-interpretable machine learning technique to make predi
         * advanced_analysis_mortality_cpft_metafeatures.rmd
         
                 * advanced code for follow-up paper
+
+        * 95CI_logistic_regression.R
+
+                * script to calculate 95% CI of logistic regression model
+
         
     * machine learning models
     
