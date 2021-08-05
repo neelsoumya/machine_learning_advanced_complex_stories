@@ -44,6 +44,9 @@ We have developed a human-interpretable machine learning technique to make predi
 
                 * script to calculate 95% CI of logistic regression model
 
+        * glmnet.R
+
+                * script to perform LASSO GLM on CPFT model
         
     * machine learning models
     
