@@ -55,3 +55,33 @@ cat(ub)
 # TODO: PCA in R code and feed to LR model
 
 
+###################
+# Perform PCA
+###################
+pr.out = prcomp(df_x, scale = TRUE)
+names(pr.out)
+
+
+###################
+# Biplot
+###################
+biplot(x = pr.out, scale = 0)
+
+pr.out$rotation = -pr.out$rotation
+pr.out$x  = -pr.out$x
+biplot(x = pr.out, scale = 0)
+
+ggbiplot(pr.out, labels =  rownames(USArrests))
+fviz_pca_biplot(pr.out)
+
+
+######################################
+# Plot variance explained
+######################################
+pr.var = pr.out$sdev^2
+proportion_variance_explained = pr.var/sum(pr.var)
+plot(proportion_variance_explained, xlab="Principal Component", ylab="Proportion of Variance Explained", ylim=c(0,1),type='b')
+plot(cumsum(proportion_variance_explained), xlab="Principal Component", ylab="Cumulative Proportion of Variance Explained", ylim=c(0,1),type='b')
+
+
+
