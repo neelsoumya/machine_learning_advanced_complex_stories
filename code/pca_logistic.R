@@ -85,3 +85,71 @@ plot(cumsum(proportion_variance_explained), xlab="Principal Component", ylab="Cu
 
 
 
+##############################################
+# logistic regression on reduced features
+##############################################
+
+# str_query = " mylogit_glm_all_f20 <- glm(formula = Death_Flag ~ age_now_scaled "
+str_query = " mylogit_glm_all_f20_pca_lr <- glm(formula =  df_f20_TRAIN$Death_Flag ~ pr.out" , data = df_f20_TRAIN, family = 'binomial' ) "
+
+#for (str_temp_colname in  unique(str_metafeatures_present_temp) )
+#{
+#    
+#      str_query = paste0(str_query, " + ", str_temp_colname)
+    
+#}
+#str_query = paste0(str_query, " , data = df_f20_TRAIN, family = 'binomial' ) ")
+# str_query 
+str_query
+# evaluate 
+
+eval(parse(text=str_query)) 
+ 
+#summary(mylogit_glm_all_f20_pca_lr)
+# log odds plots
+###############################
+# Calculate ROC AUPR AUC etc
+###############################
+prob = predict(mylogit_glm_all_f20_pca_lr, newdata=df_f20_TEST, type=c("response"))
+df_f20_TEST$prob = prob
+#g <- pROC::roc( paste0(str_exprn_roc_calculation), data=df_f20_TEST) #  Death_Flag ~ expression
+#plot(g)
+#cat("AUC is:", g$auc)
+#auc_atnf = g$auc
+# Precision recall curve
+#mmdata(df_t_all_gene_matched_withprobeid_osm_mod$expression, df_t_all_gene_matched_withprobeid_osm_mod$non_responder)
+#mmdata_atnf = mmdata(df_t_all_gene_matched_withprobeid_osm_mod$expression,
+#                     df_t_all_gene_matched_withprobeid_osm_mod$non_responder)
+#smcurves <- evalmod(mmdata_atnf, raw_curves = TRUE)
+# plot(smcurves, raw_curves = FALSE)
+fg <- prob[df_f20_TEST$Death_Flag == 1]
+bg <- prob[df_f20_TEST$Death_Flag == 0]
+# ROC Curve    
+roc <- roc.curve(scores.class0 = fg, scores.class1 = bg, curve = TRUE)
+png("figures/roc_curve_PRROC_f20.png")
+plot(roc)
+dev.off()
+# PR Curve
+pr <- pr.curve(scores.class0 = fg, scores.class1 = bg, curve = TRUE)
+png("figures/aupr_curve_PRROC_f20.png")
+plot(pr)
+dev.off()
+mylogit_active <- glm( paste0(str_exprn_roc_calculation), #Death_Flag ~ expression, 
+                      data = df_f20_TRAIN, 
+                      family = "binomial")
+prob_active = predict(mylogit_active, newdata=df_f20_TEST, type=c("response"))
+df_f20_TEST$prob_active = prob_active
+#g_active <- pROC::roc( paste0(str_exprn_roc_calculation), #Death_Flag ~ prob_active,
+#                      data=df_f20_TEST)
+#plot(g_active)
+#cat("AUC is:", g_active$auc)
+#auc_active = g_active$auc
+fg_active <- prob_active[df_f20_TEST$Death_Flag == 1]
+bg_active <- prob_active[df_f20_TEST$Death_Flag == 0]
+# ROC Curve    
+roc_active <- roc.curve(scores.class0 = fg_active, scores.class1 = bg_active, curve = TRUE)
+png("figures/roc_curve_f20.png")
+plot(roc_active)
+dev.off()
+# PR Curve
+pr_active <- pr.curve(scores.class0 = fg_active, scores.class1 = bg_active, curve = TRUE)
