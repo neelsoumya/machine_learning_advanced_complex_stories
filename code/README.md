@@ -74,6 +74,10 @@ We have developed a human-interpretable machine learning technique to make predi
             * generic_cv_test.py
 
                 * cross validation error for generic depth and activation functions   
+
+            * read_repeat_loss_crossval.R
+            
+                * cross validation error over repeated calls to same ML model
                 
     * synthetic_data
     
