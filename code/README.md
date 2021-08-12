@@ -46,6 +46,10 @@ We have developed a human-interpretable machine learning technique to make predi
         * glmnet.R
 
                 * script to perform LASSO GLM on CPFT model
+
+        * pca_logistic.R
+
+                * do glmnet, PCA + LR, PCA + RF, RF alone on data CPFT
         
     * machine learning models
     
