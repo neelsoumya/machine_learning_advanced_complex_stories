@@ -82,6 +82,10 @@ We have developed a human-interpretable machine learning technique to make predi
             * read_repeat_loss_crossval.R
             
                 * cross validation error over repeated calls to same ML model
+
+            * repeat_heatmap_ML_model.R
+
+                * run ML model and then generate class contrastive ML heatmap for repeat replicability 
                 
     * synthetic_data
     
