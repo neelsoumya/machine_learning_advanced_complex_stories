@@ -15,6 +15,7 @@ list_super_glmnet  <- NULL
 list_super_pca_lr  <- NULL
 list_super_pca_rf  <- NULL
 list_super_rf_solo <- NULL
+list_super_rf_solo_aupr <- NULL
 
 for (i_temp_counter in c(1:i_num_repeats))
 {  
@@ -301,6 +302,12 @@ for (i_temp_counter in c(1:i_num_repeats))
 
     # https://www.r-bloggers.com/2012/12/binary-classification-a-comparison-of-titanic-proportions-between-logistic-regression-random-forests-and-conditional-trees/
 
+    # aupr curve
+    pr_rf_solo <- pr.curve(scores.class0 = fg, scores.class1 = bg, curve = TRUE)
+    
+    # append to list of AUPR values for this model
+    list_super_rf_solo_aupr <- cbind( list_super_rf_solo_aupr, pr_rf_solo$auc.integral )
+    
 }
 
 
@@ -348,6 +355,15 @@ cat('RF alone Mean \n')
 cat(  mean(list_super_rf_solo) )
 cat('\n')
 
+
+cat('RF alone on unmodified features 95% CI of AUPR \n')
+cat(  quantile(list_super_rf_solo_aupr, 0.025) )
+cat('\n')
+cat(  quantile(list_super_rf_solo_aupr, 0.975) )
+cat('\n')
+cat('RF alone Mean \n')
+cat(  mean(list_super_rf_solo_aupr) )
+cat('\n')
 
 cat(' ....................... \n')
 
