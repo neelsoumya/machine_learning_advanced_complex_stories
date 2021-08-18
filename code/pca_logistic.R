@@ -2,9 +2,17 @@
 # do glmnet, PCA + LR, PCA + RF, RF alone on data CPFT
 # run after running everything till line 
 #     1792 on analysis_mortality_cpft_metafeatures.rmd
+# also calculates sensitivity and specificity
 #############################################################
 
 # https://glmnet.stanford.edu/articles/glmnet.html
+
+
+# load libraries
+library(caret)
+library(pROC)
+library(PRROC)
+
 
 # repeat
 # 10 repeats
@@ -367,5 +375,6 @@ cat('\n')
 
 cat(' ....................... \n')
 
-
-
+# calculate sensitivity and specificity
+#   or rf alone model
+caret::confusionMatrix(factor(round(prob_rf_solo)), factor(df_f20_TEST$Death_Flag))
