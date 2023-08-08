@@ -17,13 +17,11 @@ We have developed a human-interpretable machine learning technique to make predi
     * installation
     
         
-        ```R
-        R --no-save < INSTALL_MANY_MODULES.R
-        ```
+      
+       *  R --no-save < INSTALL_MANY_MODULES.R
+        
 
-        ```R
-        python -m pip install -r requirements.txt
-        ```
+       * python -m pip install -r requirements.txt
         
     * data extraction from clinical database
     
