@@ -5,7 +5,7 @@ University of Cambridge Mental Health Prediction Project.
 This is a project that uses routinely collected clinical data to predict mortality in patients with serious mental illnesses.
 We have developed a human-interpretable machine learning technique to make predictions for mortality. 
 
-* Layout
+## Files and Layout
 
     * code folder
         
@@ -90,8 +90,9 @@ We have developed a human-interpretable machine learning technique to make predi
             * stores drug categories and groupings
         * cam_project.bib
             * bibliography file
+
         
-*  Installations
+##  Installations
 
 Install Anaconda (Python distribution)
 
@@ -101,13 +102,17 @@ and install all packages by running the following command at the Terminal
 pip install -r requirements.txt
 ```
 
+For the R packages, install R and run the following command 
 
+```R
+R --no-save < INSTALL_MANY_MODULES.R
+```
 
-* Citation and manuscript
+## Citation and manuscript
 
      Forthcoming        
 
-* Contact
+## Contact
     * Soumya Banerjee
     * sb2333@cam.ac.uk
   
