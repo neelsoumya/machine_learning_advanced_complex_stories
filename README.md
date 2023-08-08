@@ -91,11 +91,23 @@ We have developed a human-interpretable machine learning technique to make predi
         * cam_project.bib
             * bibliography file
         
-        
+*  Installations
+
+Install Anaconda (Python distribution)
+
+and install all packages by running the following command at the Terminal
+
+```R
+pip install -r requirements.txt
+```
+
+
+
+* Citation and manuscript
+
+     Forthcoming        
 
 * Contact
     * Soumya Banerjee
-    * neel.soumya@gmail.com
-    * https://www.climbproject.org.uk/
-    * https://github.com/neelsoumya/mortality_calculations
-    
+    * sb2333@cam.ac.uk
+  
