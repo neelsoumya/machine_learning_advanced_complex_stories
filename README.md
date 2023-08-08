@@ -1,6 +1,5 @@
 
 
-University of Cambridge Mental Health Prediction Project.
 
 This is a project that uses routinely collected clinical data to predict mortality in patients with serious mental illnesses.
 We have developed a human-interpretable machine learning technique to make predictions for mortality. 
