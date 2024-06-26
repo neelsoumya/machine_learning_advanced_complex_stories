@@ -109,7 +109,9 @@ R --no-save < INSTALL_MANY_MODULES.R
 
 ## Citation and manuscript
 
-     Forthcoming        
+     Generating Complex Explanations for Artificial Intelligence Models: An Application to Clinical Data on Severe Mental Illness, Soumya Banerjee, Life, 14(7), 807, 2024
+
+     https://www.mdpi.com/2075-1729/14/7/807
 
 ## Contact
     * Soumya Banerjee
